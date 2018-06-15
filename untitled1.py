@@ -15,6 +15,8 @@ import time
 from PolyphaseDecimate import PolyphaseDecimate
 from FreqEstKalman import FreqEstKalman
 from CostasLoop import CostasLoop
+from PlotFir import PlotFir
+from DBPSKDemod import DBPSKDemod
 
 plotData = 0
 fs = 1488375
@@ -24,7 +26,6 @@ msgSize = int(round(2048 * sampRateRatio))
 frameSize = int(2160 * sampRateRatio)
 refSubCar = np.concatenate((np.arange(-546,-355,19),np.arange(356,547,19))) + 2048
 # Ref frame expected data to help sync to bitstream.  0 and 1s are expected values, -1s are unknown/do-not-cares
-refBits = np.array([0, 1, 1, 0, 0, 1, 0, -1, -1, 1, 1, 0, 0, 1, 0, -1, 0, 0, 0, 0, -1, 1, 1, 1])
 refBits = np.array([-1, 1, 1,-1,-1, 1,-1, 0, 0, 1, 0, 0, 0, 0,-1, 0, 0, 0, 0, 0, 0, 1, 1, 0])
                    #31,30,29,28,27,26,25,24,23,22,21,20,19,18,17,16,15,14,13,12,11,10,09,08,07,06,05,04,03,02,01,00
 refBits = np.flip(refBits,axis=0)
@@ -134,54 +135,24 @@ with open(filename,'rb') as fid:
     ofdmSig = ofdmSig[0:int(len(ofdmSig)/frameSize)*frameSize]
     ofdmSig = np.reshape(ofdmSig,(-1,frameSize))
     ofdmSig = ofdmSig[:,prefixSize-1:-1]
-    #ofdmSig = np.reshape(ofdmSig,(-1))
     # Perform FFT
     fftOut = np.fft.fft(ofdmSig,msgSize)
-    
     fftOut2 = np.fft.fftshift(fftOut,axes=1)
     
-    freqEst = np.zeros((fftOut2.shape[0]-1,refSubCar.shape[0]))
-    for i in range(0,refSubCar.shape[0]):
-      fftNdx = refSubCar[i]
-      # Attempt to fine-tune the frequency offset
-      phsDiff = fftOut2[1:,fftNdx] * np.conj(fftOut2[0:-1,fftNdx])
-      freqEst[:,i] = np.angle(phsDiff**2) / 2
-      #phsEst[:,i] = 
-    
-    # Calculate frequency offset in Hz
-    freqEst2 = np.mean(freqEst) * fs / msgSize / (2*np.pi)
-    filtInput = demodFreq + freqErr + freqEst2
-    kalman.run(filtInput)
-    #print(kalman.x[0][0])
-    print("\r KlmnEst: {0:.2f}, KlmnInput: {1:.2f}, FFT Err: {2:.2f}, RefCar Err: {3:.2f}".format(kalman.x,filtInput,freqErr,freqEst2), end=" ", flush=True)
-    #radians/sample * samples/sec = radians/sec * 1cycle/(2*pi radians)
-    
-    
-    # Create demod signal
-    print(kalman.x-demodFreq)
-    timeSamps = np.linspace(0,399,400)
-    timeSamps = timeSamps / fs * 4096
-    demodSig2 = np.exp(-1j*2*np.pi*(freqEst2)*timeSamps)
-    demodSig2 = np.tile(demodSig2,(msgSize,1)).T   # <------- horribly inefficient, wasting time on non-existent subcarriers
-    output = demodSig2 * fftOut2
-    
-    
-
     # Create the costas loop object
-    costasLoop = CostasLoop(np.ones(5)/5,5,400)
-    costasLoop = CostasLoop([],1,400)
-
-    # Initialize the object
-    costasLoop.run(fftOut2[:,refSubCar[0]])
-
-
+    costasLoop = CostasLoop(0.25**2,0.25,400)
+    # Run the costas loop
+    costasLoop.run(fftOut2[:,refSubCar[10]])
     
+    # Apply the resulting NCO output to all of the subcarrier channels  <------- currently inefficient, performing on all channels, even unused ones
+    phsModMat = np.expand_dims(np.exp(1j*costasLoop.phsVal),1)
+    output = fftOut2 * np.tile(phsModMat,[1, fftOut2.shape[1]])
 
-    # DPSK demodulation
-    bits = np.real(output[1:,refSubCar] * np.conj(output[0:-1,refSubCar]))
-    bits[bits < 0] = -1
-    bits[bits > 0] = 1
-    tmp = lfilter(refBits*-1,1,bits,axis=0)
+    # Perform DBPSK demodulation on the reference subcarriers
+    refCarBits = DBPSKDemod(output[:,refSubCar])
+    
+    # Search for block boundaries in the ref subcarriers
+    tmp = lfilter(refBits*-1,1,refCarBits,axis=0)
     
     
     
