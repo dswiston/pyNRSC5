@@ -28,22 +28,14 @@ refSubCar = np.concatenate((np.arange(-546,-355,19),np.arange(356,547,19))) + 20
 # Ref frame expected data to help sync to bitstream.  0 and 1s are expected values, -1s are unknown/do-not-cares
 refBits = np.array([-1, 1, 1,-1,-1, 1,-1, 0, 0, 1, 0, 0, 0, 0,-1, 0, 0, 0, 0, 0, 0, 1, 1, 0])
                    #31,30,29,28,27,26,25,24,23,22,21,20,19,18,17,16,15,14,13,12,11,10,09,08,07,06,05,04,03,02,01,00
+firstBlkRefBits = np.array([-1, 1, 1,-1,-1, 1,-1, 0, 0, 1, 1,-1,-1, 1,-1, 0,-1,-1,-1,-1, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0])
+                            #31,30,29,28,27,26,25,24,23,22,21,20,19,18,17,16,15,14,13,12,11,10,09,08,07,06,05,04,03,02,01,00
+
 refBits = np.flip(refBits,axis=0)
-# Create the Kalman filter frequency tracker
-A = np.eye(1)            # State difference equation
-R = np.eye(1)*5**2       # Measurement covariance
-H = np.eye(1)            # Measurement to state equation
-P = 1500**2              # Initial state covariance
-Q = np.eye(1)*0.1**2     # Process noise
-# Create the filter object
-kalman = FreqEstKalman(A,R,H,P,Q)
-# Initialize the filter object
-kalman.initialize(0)
 
-
-
-
-blkSize = (frameSize * 400 + msgSize)
+numBlks = 13
+numBitsPerBlk = 32*numBlks+1
+blkSize = (frameSize * numBitsPerBlk + msgSize)
 
 
 readSize = blkSize * 2
@@ -86,7 +78,7 @@ with open(filename,'rb') as fid:
     # Define the decimation rate to convert from the sampling rate to the digital rate
     digiDec = 1
     # Define the modulation frequency to approximately baseband the digital sidebands
-    demodFreq = kalman.x
+    demodFreq = 0
     # Create the demodulation signal to baseband digital sidebands
     sigTime = np.linspace(0,int(blkSize)-1,int(blkSize))   # <------------------------- reminder to add time reference in the future to preserve phase
     sigTime = sigTime / fs
@@ -140,7 +132,7 @@ with open(filename,'rb') as fid:
     fftOut2 = np.fft.fftshift(fftOut,axes=1)
     
     # Create the costas loop object
-    costasLoop = CostasLoop(0.25**2,0.25,400)
+    costasLoop = CostasLoop(0.25**2,0.25,numBitsPerBlk)
     # Run the costas loop
     costasLoop.run(fftOut2[:,refSubCar[10]])
     
@@ -152,35 +144,13 @@ with open(filename,'rb') as fid:
     refCarBits = DBPSKDemod(output[:,refSubCar])
     
     # Search for block boundaries in the ref subcarriers
-    tmp = lfilter(refBits*-1,1,refCarBits,axis=0)
-    
-    
-    
-    
+    tmp = lfilter(refBits,1,refCarBits,axis=0)
+    tmp = tmp.sum(axis=1)
+    tmp = tmp.reshape((int((numBitsPerBlk-1)/32),32))
+    tmp = tmp.sum(axis=0)
+    blkNdx = np.argmax(np.abs(tmp))
+    if tmp[blkNdx] < 0:
+      phsInv = 1
+    else:
+      phsInv = 0
 
-    plt.plot(np.angle(output[:,refSubCar[16]]),'.')
-    plt.ylim([-3.15,3.15])
-    plt.draw()
-    plt.pause(0.5)
-    time.sleep(0.5)
-    plt.cla()
-#    
-#    plt.plot(abs(fftOut[1,:]))
-#    plt.xlim(300,600)
-#    
-#    timeSamps = np.linspace(0,399,400)
-#    timeSamps = timeSamps / fs * 4096
-#    for i in refSubCar:
-#      testSig = fftOut2[:,i]
-#      for x in range(-470,-450):
-#        testDemodSig = np.exp(-1j*2*np.pi*x/100*timeSamps)
-#        output = testSig * testDemodSig
-#        plt.plot(np.real(output),np.imag(output),'.')
-#        plt.xlim(-600,600)
-#        plt.ylim(-600,600)
-#        plt.pause(0.1)
-#        print(x)
-#        plt.cla()
-#    
-#    if plotData:
-#      plt.plot(filtOut)
