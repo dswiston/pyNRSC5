@@ -45,14 +45,23 @@ class CostasLoop:
     
     # Is the input is not complex (analytic), create a complex (analytic) 
     # representation
-    if ~np.any(np.iscomplex(loopInput[0])):
+    if not(np.iscomplexobj(loopInput)):
       loopInput = hilbert(loopInput)
     
     # Loop over the input
     for ndx in range(len(loopInput)):
-      
+
       # Create the basebanded signal
-      modSig = loopInput[ndx] * np.exp(1j*(self.phsVal[ndx]))
+      if ndx == 0:
+        # This is the first iteration in this block.  Act as a circular buffer 
+        # and wrap to the last value of the previous iteration through the 
+        # buffer to maintain coherency
+        prevVal = self.phsVal[-1]
+      else:
+        # Not the first iteration, no need to wrap. Take previous buffer value.
+        prevVal = self.phsVal[ndx-1]
+      
+      modSig = loopInput[ndx] * np.exp(1j*prevVal)
       
       # Store in an output array
       self.output[ndx] = modSig
@@ -72,14 +81,6 @@ class CostasLoop:
       phsInc = self.loopFiltPhs * errSig + self.freqInc
       
       # Update the phase of the next NCO output sample
-      if ndx == self.bufferSize-1:
-        # This is the last time through.  Act as a circular buffer and wrap to
-        # the first value so that the next time through the first sample will 
-        # be modulated by the last loop output of the previous buffer
-        self.phsVal[0] = self.phsVal[ndx] + phsInc
-      else:
-        # This isn't the last block iteration, output goes into next index
-        self.phsVal[ndx+1] = self.phsVal[ndx] + phsInc
+      self.phsVal[ndx] = prevVal + phsInc
       
     self.output = self.output * np.exp(1j*np.pi/2);
-#    bits = np.append(bits,np.real(rawBits) > 0);
