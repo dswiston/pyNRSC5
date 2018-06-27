@@ -12,8 +12,6 @@ import matplotlib.pyplot as plt
 
 def CoarseTimeSync(decData,msgSize,frameSize,prefixFilt,fs):
   
-  #import pdb; pdb.set_trace()
-
   prefixSize = prefixFilt.size
   
   # Execute the auto-correlation for syncronization. Only need to compute it for one lag (msgSize)
@@ -31,6 +29,6 @@ def CoarseTimeSync(decData,msgSize,frameSize,prefixFilt,fs):
   freqErr = -np.angle(filtOut[timeOffset]) * fs / (2 * np.pi * msgSize)
   
   # Trim off the incomplete symbol
-  sigOut = np.concatenate((np.zeros(frameSize),decData[timeOffset-prefixSize-115-108:-1]))
+  sigOut = np.concatenate((np.zeros(prefixSize),decData[timeOffset-prefixSize:-1]))
 
   return(timeOffset,freqErr,sigOut)

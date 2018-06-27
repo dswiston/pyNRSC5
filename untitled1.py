@@ -58,7 +58,7 @@ sigTime = sigTime / fs
 prefixFilt = np.blackman(224)
 
 # Create the costas loop object
-costasLoop = CostasLoop(0.25**2,0.25,numBitsPerBlk+1)
+costasLoop = CostasLoop(0.25**2,0.25,numBitsPerBlk)
 
 leftOvrBuf = np.array([],dtype=np.complex64)
 
