@@ -32,12 +32,19 @@ class CostasLoop:
     self.loopFiltFreq = loopFiltFreq
     self.loopFiltPhs = loopFiltPhs
     self.output = np.zeros(bufferSize,dtype=np.complex64)
-    self.phsVal = np.zeros(bufferSize,dtype=np.complex64)
+    self.phsVal = np.zeros(bufferSize+1,dtype=np.complex64)
 
 
   def run(self,loopInput):
-    phsInc = 0
+
     #import pdb; pdb.set_trace()
+    if loopInput.size > self.bufferSize:
+      self.bufferSize = loopInput.size
+      self.output = np.zeros(self.bufferSize,dtype=np.complex64)
+      prevVal = self.phsVal[-1]
+      self.phsVal = np.zeros(self.bufferSize+1,dtype=np.complex64)
+      self.phsVal[-1] = prevVal
+    
     # Execute the costas loop
     # Normalize the input.  Allows the loop filter gain to not depend on the
     # input signal amplitude
@@ -56,20 +63,15 @@ class CostasLoop:
         # This is the first iteration in this block.  Act as a circular buffer 
         # and wrap to the last value of the previous iteration through the 
         # buffer to maintain coherency
-        prevVal = self.phsVal[-1]
-      else:
-        # Not the first iteration, no need to wrap. Take previous buffer value.
-        prevVal = self.phsVal[ndx-1]
+        self.phsVal[0] = self.phsVal[-1]
       
-      modSig = loopInput[ndx] * np.exp(1j*prevVal)
-      
-      # Store in an output array
-      self.output[ndx] = modSig
+      # Modulate the input by the VCO and store in an output array
+      self.output[ndx] = loopInput[ndx] * np.exp(1j*self.phsVal[ndx])
       
       # Calculate the individual I and Q values, to be used to compute the 
       # error signal
-      realVal = np.real(modSig)
-      imagVal = np.imag(modSig)
+      realVal = np.real(self.output[ndx])
+      imagVal = np.imag(self.output[ndx])
       
       # Calculate the latest error signal.  Note, I don't believe I need to 
       # worry about filtering the I/Q to remove the 2Wc component because the 
@@ -81,6 +83,6 @@ class CostasLoop:
       phsInc = self.loopFiltPhs * errSig + self.freqInc
       
       # Update the phase of the next NCO output sample
-      self.phsVal[ndx] = prevVal + phsInc
+      self.phsVal[ndx+1] = self.phsVal[ndx] + phsInc
       
     self.output = self.output * np.exp(1j*np.pi/2);

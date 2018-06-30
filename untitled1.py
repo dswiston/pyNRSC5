@@ -63,6 +63,8 @@ costasLoop = CostasLoop(0.25**2,0.25,numBitsPerBlk)
 leftOvrBuf = np.array([],dtype=np.complex64)
 
 isSync = False
+intTimingOffset = 0
+pltNdx = np.zeros(1)
 
 readSize = blkSize * 2
 #readSize = blkSize * 4 * 2
@@ -71,15 +73,13 @@ filename = '/home/dave/Projects/PythonWork/NRSC5/nrsc5-sample.wav'
 readFormat = str(readSize) + 'B'
 #readFormat = str(int(readSize/4)) + 'f'    # DIV BY FOUR DUE TO GQRX FLOAT FORMAT
 
-fid = open(filename,'rb')
-if True:
-#with open(filename,'rb') as fid:
-  #while True:
-    tmp = fid.read(readSize)
-    tmp = fid.read(20)
+#fid = open(filename,'rb')
+#if True:
+with open(filename,'rb') as fid:
+  while True:
     tmp = fid.read(readSize)
 
-    #if not tmp: break
+    if not tmp: break
 
     tmp = struct.unpack(readFormat,tmp)
     # Convert to a numpy array of floats
@@ -94,6 +94,11 @@ if True:
     
     # Perform filtering
     data,digiFiltState = lfilter(digiFilt, 1, data, zi=digiFiltState)
+    
+    if intTimingOffset > 0:
+      leftOvrBuf = leftOvrBuf[intTimingOffset:]
+    elif intTimingOffset < 0:
+      leftOvrBuf = np.concatenate((np.zeros(-intTimingOffset),leftOvrBuf))
     
     # Append the unused data from the previous buffer
     data = np.concatenate((leftOvrBuf,data))
@@ -136,36 +141,49 @@ if True:
     #demodFreq -= freqErr
     
     # Apply the resulting NCO output to all of the subcarrier channels
-    phsModMat = np.expand_dims(np.exp(1j*costasLoop.phsVal),1)
+    phsModMat = np.expand_dims(np.exp(1j*costasLoop.phsVal[0:-1]),1)
     output1 = refSubCars * np.tile(phsModMat,[1, refSubCars.shape[1]])
     output2 = p1SubCars * np.tile(phsModMat,[1, p1SubCars.shape[1]])
     
+    # Find the timing offset of the buffer
+    timingOffset = FindTimingOffset(output1,msgSize)
+    intTimingOffset = int(np.round(timingOffset))
+    fracTimingOffset = timingOffset - intTimingOffset
+    
+    # Account for fractional offsets
+    timeOffPhsVal = timingOffset * (2*np.pi) / msgSize
+    refPhsErr = np.concatenate((np.zeros(1),np.cumsum(np.diff(refSubCar)))) * timeOffPhsVal
+    refPhsErr = np.exp(1j*refPhsErr)
+    output1 = output1 * np.tile(refPhsErr,[refSubCars.shape[0],1])
+    p1PhsErr = (np.concatenate((np.zeros(1),np.cumsum(np.diff(p1SubCar)))) + 1) * timeOffPhsVal
+    p1PhsErr = np.exp(1j*p1PhsErr)
+    output2 = output2 * np.tile(p1PhsErr,[p1SubCars.shape[0],1])
+
     # Perform DBPSK demodulation on the reference subcarriers
     refCarBits = DBPSKDemod(output1)
     
     # Find the block boundaries
     blkNdx, phsInv = FindBlockBoundary(refBits,refCarBits,numBitsPerBlk)
     
-    # FFFF
-    timingOffset = FindTimingOffset(output1,msgSize)
-    
     # If locked 180deg out of phase, flip the bits
     if phsInv:
       refCarBits = refCarBits * -1
     
-    plt.subplot(3,2,1)
+    plt.figure(1)
+    plt.subplot(3,2,1); plt.cla()
     plt.plot(costasLoop.phsVal)
     plt.title('PLL Output')
-    plt.subplot(3,2,2)
-    for ndx in range(0,40):
+    plt.subplot(3,2,2); plt.cla()
+    for ndx in range(0,359):
       phsErr = 0.0
       plt.plot(np.real(output2[:,ndx]*np.exp(-1j*ndx*phsErr)),np.imag(output2[:,ndx]*np.exp(-1j*ndx*phsErr)),'o')
     plt.title('First Data Subcarriers')
-    plt.subplot(3,2,3)
+    plt.subplot(3,2,3); plt.cla()
     for ndx in range(0,22):
       phsErr = 0.0
       plt.plot(np.real(output1[:,ndx]*np.exp(-1j*ndx*phsErr)),np.imag(output1[:,ndx]*np.exp(-1j*ndx*phsErr)),'o')
     plt.title('First Reference Subcarriers')
+    plt.pause(0.5)
     
     '''
     plt.plot(np.real(output2[:,0]),np.imag(output2[:,0]),'.',markersize=12)

@@ -10,6 +10,7 @@ import numpy as np
 
 def FindTimingOffset(input,fftSize):
   
+  #import pdb; pdb.set_trace()
   # Concept is to calculate the phase change across subcarriers (frequency)
   # The estimator being used is a delay discriminator. It isn't the most 
   # accurate estimator possible but it is computationally efficient and works
@@ -25,13 +26,25 @@ def FindTimingOffset(input,fftSize):
   # Create frequency estimate
   freqErr = np.angle(np.sum(vectDiff))/2
   
+  phsPred = freqErr * 1092 / 19
+  phsPredWrap = ( phsPred + np.pi) % (2 * np.pi ) - np.pi
+
+  phsAct = input[:,0] * np.conj(input[:,-1])
+  phsAct = np.angle(np.sum(phsAct**2))/2
+  phsErr = phsAct - phsPredWrap
+  phsErr = ( phsErr + np.pi/2) % ( np.pi ) - np.pi/2
+
+  freqEst = (phsPred + phsErr)/1092*19
+  
   # Frequency offset in frequency domain translates to a timing offset in the
   # time domain.  Perform conversion to time domain.
   timingErr = freqErr / (2*np.pi) / 19 * fftSize
-  
-  print('Timing Error: ' + str(timingErr))
-  
-  return timingErr
+  timingErr2 = freqEst / (2*np.pi) / 19 * fftSize
+
+  print('Timing Error:  ' + str(timingErr))
+  print('Timing Error2: ' + str(timingErr2))
+
+  return timingErr2
 
 '''
     0.06rad/sample
